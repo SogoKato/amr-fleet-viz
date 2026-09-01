@@ -11,13 +11,34 @@ interface Viewport {
   height: number;
 }
 
-export class Renderer {
-  private readonly ctx: CanvasRenderingContext2D;
+/** What the map editor wants emphasized on the canvas. */
+export interface Highlight {
+  nodeId: string | null;
+  edge: { from: string; to: string } | null;
+}
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
+export class Renderer {
+  private readonly canvas: HTMLCanvasElement;
+  private readonly ctx: CanvasRenderingContext2D;
+  private lastViewport: Viewport | null = null;
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas is not supported");
     this.ctx = ctx;
+  }
+
+  /** Map coordinates (meters) → canvas CSS pixels, using the last drawn frame. */
+  mapToPx(x: number, y: number): [number, number] | null {
+    return this.lastViewport ? this.toPx(this.lastViewport, x, y) : null;
+  }
+
+  /** Canvas CSS pixels → map coordinates (meters), using the last drawn frame. */
+  pxToMap(px: number, py: number): [number, number] | null {
+    const v = this.lastViewport;
+    if (!v) return null;
+    return [(px - v.offsetX) / v.scale, (v.height - py - v.offsetY) / v.scale];
   }
 
   /** Match the canvas backing store to its CSS size and device pixel ratio. */
@@ -54,16 +75,17 @@ export class Renderer {
     return [v.offsetX + x * v.scale, v.height - (v.offsetY + y * v.scale)];
   }
 
-  draw(config: ResolvedConfig, states: RobotState[], proximity: Set<RobotState>): void {
+  draw(config: ResolvedConfig, states: RobotState[], proximity: Set<RobotState>, highlight?: Highlight | null): void {
     const { width, height } = this.syncSize();
     const v = this.viewport(config, width, height);
+    this.lastViewport = v;
     const ctx = this.ctx;
 
     ctx.fillStyle = "#101418";
     ctx.fillRect(0, 0, width, height);
     this.drawGrid(v, width, height);
-    this.drawEdges(config, v);
-    this.drawNodes(config, v);
+    this.drawEdges(config, v, highlight?.edge ?? null);
+    this.drawNodes(config, v, highlight?.nodeId ?? null);
     for (const state of states) this.drawRobot(state, v, proximity.has(state));
   }
 
@@ -86,28 +108,32 @@ export class Renderer {
     ctx.stroke();
   }
 
-  private drawEdges(config: ResolvedConfig, v: Viewport): void {
+  private drawEdges(config: ResolvedConfig, v: Viewport, selected: { from: string; to: string } | null): void {
     const ctx = this.ctx;
-    ctx.lineWidth = 2;
     ctx.font = "11px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (const edge of config.edges) {
+      const isSelected =
+        selected !== null &&
+        ((edge.from.id === selected.from && edge.to.id === selected.to) ||
+          (edge.from.id === selected.to && edge.to.id === selected.from));
       const [x1, y1] = this.toPx(v, edge.from.x, edge.from.y);
       const [x2, y2] = this.toPx(v, edge.to.x, edge.to.y);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+      ctx.strokeStyle = isSelected ? "#388bfd" : "rgba(255, 255, 255, 0.18)";
+      ctx.lineWidth = isSelected ? 3 : 2;
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
       ctx.stroke();
       // Distance label; a "*" marks an explicit override of the drawn length.
       const label = `${edge.distance.toFixed(1)}m${edge.explicit ? "*" : ""}`;
-      ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+      ctx.fillStyle = isSelected ? "#79b8ff" : "rgba(255, 255, 255, 0.35)";
       ctx.fillText(label, (x1 + x2) / 2, (y1 + y2) / 2 - 8);
     }
   }
 
-  private drawNodes(config: ResolvedConfig, v: Viewport): void {
+  private drawNodes(config: ResolvedConfig, v: Viewport, selectedId: string | null): void {
     const ctx = this.ctx;
     ctx.font = "12px system-ui, sans-serif";
     ctx.textAlign = "center";
@@ -121,6 +147,15 @@ export class Renderer {
       ctx.strokeStyle = "#9ca3af";
       ctx.lineWidth = 1.5;
       ctx.stroke();
+      if (node.id === selectedId) {
+        ctx.strokeStyle = "#388bfd";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.arc(x, y, NODE_RADIUS_PX + 5, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
       ctx.fillStyle = "#d1d5db";
       ctx.fillText(node.label, x, y - NODE_RADIUS_PX - 4);
     }
