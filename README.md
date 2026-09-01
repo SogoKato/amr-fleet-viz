@@ -22,17 +22,17 @@ npm run dev     # open the printed URL (default http://localhost:5173)
 - The sidebar shows each robot's live status (moving / turning / waiting / idle).
 - Two robots closer than 0.8 m are ringed in red — a hint that their routes conflict at that moment.
 
-### Map editor
+### Scenario editor
 
-Click **Edit map** to build or adjust the map directly on the canvas:
+Click **Edit map** to build or adjust a scenario directly on the canvas — or **New** to start from a blank map:
 
 - **Double-click** empty space to add a waypoint. Positions snap to a grid (1 / 0.5 / 0.25 / 0.1 m, or off) so maps stay neatly aligned.
 - **Drag** a waypoint to move it (snapped); select it to edit its id, label, and exact coordinates in the sidebar. A waypoint on one fixed-distance edge can't stretch that edge — it swings on an arc around its neighbor; with two or more fixed-distance edges it is locked to its coordinates (edit x/y in the sidebar).
 - **Shift+click** another waypoint while one is selected to connect an edge, then type an explicit **distance** in the sidebar (leave empty for the automatic straight-line distance).
 - **Del** removes the selected waypoint or edge. Waypoints used by a robot's route are protected — and edits that would break the scenario are rejected and rolled back.
+- **Robots**: add or delete robots in the sidebar and edit their id, color, speed, turn time, start delay, and looping.
+- **Routes**: with a robot selected, click **Pick stops on map** and then click waypoints on the canvas to build its route (Esc to stop picking). The selected robot's route is drawn as a colored overlay with visit order numbers; each stop's wait time is set inline in the stop list.
 - **Save config** downloads the current scenario (map + robots) as JSON, so anything built in the UI stays portable.
-
-Robot definitions (speeds, turn times, routes, waits) are edited in the JSON file for now.
 
 ## Configuration files
 
