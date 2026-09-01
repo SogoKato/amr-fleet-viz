@@ -189,14 +189,31 @@ export class Renderer {
     ctx.lineTo(x + Math.cos(heading) * r * 0.9, y + Math.sin(heading) * r * 0.9);
     ctx.stroke();
 
-    // Phase badge for stationary phases
-    if (state.phase === "waiting" || state.phase === "idle" || state.phase === "turning") {
-      ctx.font = "10px system-ui, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-      const badge = state.phase === "turning" ? "↻" : state.phase === "waiting" ? "⏸" : "…";
-      ctx.fillText(badge, x + r + 8, y - r);
+    // Phase badge for stationary phases (drawn, not text — headless
+    // environments often lack emoji glyphs).
+    const bx = x + r + 8;
+    const by = y - r;
+    ctx.strokeStyle = ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+    if (state.phase === "waiting") {
+      ctx.fillRect(bx - 3.5, by - 4, 2.5, 8);
+      ctx.fillRect(bx + 1, by - 4, 2.5, 8);
+    } else if (state.phase === "turning") {
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(bx, by, 4, -0.5 * Math.PI, Math.PI);
+      ctx.stroke();
+      ctx.beginPath(); // arrowhead at the arc's start (top)
+      ctx.moveTo(bx + 1, by - 6.5);
+      ctx.lineTo(bx + 4.5, by - 4);
+      ctx.lineTo(bx - 0.5, by - 1.5);
+      ctx.closePath();
+      ctx.fill();
+    } else if (state.phase === "idle") {
+      for (const dx of [-4, 0, 4]) {
+        ctx.beginPath();
+        ctx.arc(bx + dx, by, 1.3, 0, 2 * Math.PI);
+        ctx.fill();
+      }
     }
 
     ctx.font = "bold 12px system-ui, sans-serif";
