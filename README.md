@@ -2,6 +2,8 @@
 
 Visualize how a fleet of delivery robots behaves when multiple units share the same space.
 
+![screenshot](docs/screenshot.png)
+
 A browser-based simulator: it draws a 2D map of waypoints, then animates multiple autonomous mobile robots (AMRs), each following its own fixed route — moving in straight lines between waypoints, turning in place when the direction changes, and pausing at designated stops. Robots that come close to each other are highlighted, so you can spot where routes interfere.
 
 ## Getting started
@@ -87,5 +89,6 @@ Scenarios are plain JSON files, so they are easy to version, share, and generate
 - `npm run dev` — dev server with hot reload
 - `npm run build` — type-check and bundle to `dist/`
 - `npm run preview` — serve the production build locally
+- `npm run screenshot [-- <simSeconds> <out.png>]` — capture `docs/screenshot.png` headlessly with Playwright (run `npx playwright install chromium` once)
 
 Source layout: `src/config.ts` (schema validation), `src/simulation.ts` (per-robot timelines), `src/renderer.ts` (canvas drawing), `src/main.ts` (UI wiring).
