@@ -26,7 +26,12 @@ export class MapEditor {
   private snap = 0.5;
   private selectedNodeId: string | null = null;
   private selectedEdge: { from: string; to: string } | null = null;
-  private dragging: { id: string; moved: boolean } | null = null;
+  private dragging: {
+    id: string;
+    moved: boolean;
+    /** Arc constraint from a fixed-distance edge: swing around anchor, keep the drawn length. */
+    arc: { anchorId: string; radius: number } | null;
+  } | null = null;
 
   private readonly canvas: HTMLCanvasElement;
   private readonly renderer: Renderer;
@@ -72,7 +77,7 @@ export class MapEditor {
   /* ---- geometry helpers ---- */
 
   private snapValue(v: number): number {
-    if (this.snap <= 0) return Math.round(v * 100) / 100;
+    if (this.snap <= 0) return round2(v);
     return Math.round(v / this.snap) * this.snap;
   }
 
@@ -116,6 +121,19 @@ export class MapEditor {
     return this.host.getRaw()?.map.edges?.find((e) => edgeKey(e.from, e.to) === key);
   }
 
+  /** Ids of nodes connected to `nodeId` through fixed-distance (explicit) edges. */
+  private fixedNeighbors(nodeId: string): string[] {
+    const raw = this.host.getRaw();
+    if (!raw) return [];
+    const ids: string[] = [];
+    for (const e of raw.map.edges ?? []) {
+      if (e.distance === undefined) continue;
+      if (e.from === nodeId) ids.push(e.to);
+      else if (e.to === nodeId) ids.push(e.from);
+    }
+    return ids;
+  }
+
   private routesUsing(nodeId: string): string[] {
     const raw = this.host.getRaw();
     if (!raw) return [];
@@ -136,7 +154,7 @@ export class MapEditor {
       } else {
         this.selectedNodeId = node.id;
         this.selectedEdge = null;
-        this.dragging = { id: node.id, moved: false };
+        this.dragging = this.startDrag(node.id);
       }
       this.renderPanel();
       return;
@@ -147,14 +165,54 @@ export class MapEditor {
     this.renderPanel();
   }
 
+  /**
+   * Fixed-distance edges must not be stretched by dragging: with one such
+   * edge the node swings on an arc around its neighbor (keeping the drawn
+   * length), with two or more the node is locked (use the x/y fields).
+   */
+  private startDrag(id: string): { id: string; moved: boolean; arc: { anchorId: string; radius: number } | null } | null {
+    const fixed = this.fixedNeighbors(id);
+    if (fixed.length >= 2) {
+      this.host.showMessage(
+        `Node "${id}" is held by ${fixed.length} fixed-distance edges (${fixed.join(", ")}); drag is disabled. Edit x/y in the sidebar instead.`,
+      );
+      return null;
+    }
+    if (fixed.length === 1) {
+      const node = this.rawNode(id);
+      const anchor = this.rawNode(fixed[0]);
+      if (node && anchor) {
+        const radius = euclidean(node, anchor);
+        if (radius > 0) return { id, moved: false, arc: { anchorId: fixed[0], radius } };
+      }
+    }
+    return { id, moved: false, arc: null };
+  }
+
   private onMouseMove(e: MouseEvent): void {
     if (!this.enabled || !this.dragging) return;
     const [px, py] = this.canvasPoint(e);
     const map = this.renderer.pxToMap(px, py);
     const node = this.rawNode(this.dragging.id);
     if (!map || !node) return;
-    const x = this.snapValue(map[0]);
-    const y = this.snapValue(map[1]);
+    let x: number;
+    let y: number;
+    const arc = this.dragging.arc;
+    if (arc) {
+      // Project the cursor onto the circle around the anchor (no grid snap —
+      // arc positions rarely align with the grid).
+      const anchor = this.rawNode(arc.anchorId);
+      if (!anchor) return;
+      const dx = map[0] - anchor.x;
+      const dy = map[1] - anchor.y;
+      const len = Math.hypot(dx, dy);
+      if (len === 0) return;
+      x = round2(anchor.x + (dx / len) * arc.radius);
+      y = round2(anchor.y + (dy / len) * arc.radius);
+    } else {
+      x = this.snapValue(map[0]);
+      y = this.snapValue(map[1]);
+    }
     if (x === node.x && y === node.y) return;
     node.x = x;
     node.y = y;
@@ -379,6 +437,13 @@ export class MapEditor {
     const usedBy = this.routesUsing(id);
     if (usedBy.length > 0) form.append(el("p", { class: "hint" }, `On route of: ${usedBy.join(", ")}`));
 
+    const fixed = this.fixedNeighbors(id);
+    if (fixed.length === 1) {
+      form.append(el("p", { class: "hint" }, `Fixed-distance edge to ${fixed[0]}: dragging swings this node on an arc (drawn length kept).`));
+    } else if (fixed.length >= 2) {
+      form.append(el("p", { class: "hint" }, `Held by fixed-distance edges to ${fixed.join(", ")}: dragging is disabled, edit x/y here.`));
+    }
+
     const del = el("button", { class: "danger" }, "Delete node") as HTMLButtonElement;
     del.addEventListener("click", () => this.deleteNode(id));
     form.append(del);
@@ -428,6 +493,10 @@ function textField(parent: HTMLElement, label: string, value: string): HTMLInput
   wrap.append(input);
   parent.append(wrap);
   return input;
+}
+
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
 }
 
 function pointToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
