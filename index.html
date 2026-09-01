@@ -114,6 +114,7 @@
         white-space: pre-wrap;
       }
       #drop-hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+      #terms-link { color: var(--muted); font-size: 12px; }
       body.dragging::after {
         content: "Drop a config JSON to load it";
         position: fixed;
@@ -152,6 +153,7 @@
       <select id="samples"></select>
       <input type="file" id="file-input" accept=".json,application/json" hidden />
       <span id="drop-hint">or drop a JSON file anywhere</span>
+      <a id="terms-link" href="https://github.com/SogoKato/amr-fleet-viz/blob/main/TERMS.md" target="_blank" rel="noopener">Terms</a>
     </header>
     <div id="error"></div>
     <main>

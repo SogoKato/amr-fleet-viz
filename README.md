@@ -94,3 +94,7 @@ Scenarios are plain JSON files, so they are easy to version, share, and generate
 - `npm run screenshot [-- <simSeconds> <out.png>]` — capture `docs/screenshot.png` headlessly with Playwright (run `npx playwright install chromium` once)
 
 Source layout: `src/config.ts` (schema validation), `src/simulation.ts` (per-robot timelines), `src/renderer.ts` (canvas drawing), `src/main.ts` (UI wiring).
+
+## License & Terms
+
+MIT — see [LICENSE](LICENSE). Simple terms of use (English/Japanese) are in [TERMS.md](TERMS.md); all data stays in your browser.
