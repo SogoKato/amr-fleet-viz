@@ -64,6 +64,15 @@
         font-size: 13px;
       }
       #editor-panel button.danger { margin-top: 8px; }
+      #editor-panel .robot-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+      #editor-panel .chip { padding: 3px 10px; border-radius: 999px; font-size: 12px; }
+      #editor-panel .chip.selected { background: #1f6feb; }
+      #editor-panel .stop-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+      #editor-panel .stop-index { color: var(--muted); font-size: 11px; width: 16px; text-align: right; }
+      #editor-panel .stop-node { flex: 1; font-size: 12.5px; }
+      #editor-panel .stop-row input { width: 64px; background: #0d1117; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; font-size: 12px; }
+      #editor-panel .stop-remove { padding: 1px 8px; }
+      #editor-panel input[type="color"] { width: 40px; height: 24px; padding: 0; background: none; }
       .clock {
         font-variant-numeric: tabular-nums;
         font-size: 13px;
@@ -136,6 +145,7 @@
         </select>
       </label>
       <span class="clock" id="clock">t = 0.0s</span>
+      <button id="new">New</button>
       <button id="edit-toggle">Edit map</button>
       <button id="load">Load config…</button>
       <button id="save">Save config</button>

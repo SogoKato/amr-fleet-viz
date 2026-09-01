@@ -1,6 +1,6 @@
 import { edgeKey, euclidean } from "./config";
 import type { Highlight, Renderer } from "./renderer";
-import type { EdgeConfig, FleetConfig, MapNode, NodeConfig, ResolvedConfig, RouteStop } from "./types";
+import type { EdgeConfig, FleetConfig, MapNode, NodeConfig, ResolvedConfig, RobotConfig, RouteStop } from "./types";
 
 const NODE_HIT_RADIUS_PX = 12;
 const EDGE_HIT_RADIUS_PX = 7;
@@ -26,6 +26,9 @@ export class MapEditor {
   private snap = 0.5;
   private selectedNodeId: string | null = null;
   private selectedEdge: { from: string; to: string } | null = null;
+  private selectedRobotId: string | null = null;
+  /** While true, clicking nodes appends them to the selected robot's route. */
+  private routeArmed = false;
   private dragging: {
     id: string;
     moved: boolean;
@@ -53,9 +56,7 @@ export class MapEditor {
 
   setEnabled(on: boolean): void {
     this.enabled = on;
-    this.selectedNodeId = null;
-    this.selectedEdge = null;
-    this.dragging = null;
+    this.clearSelection();
     this.panel.style.display = on ? "block" : "none";
     document.body.classList.toggle("editing", on);
     this.renderPanel();
@@ -63,15 +64,32 @@ export class MapEditor {
 
   /** Called by the host after a new config is loaded. */
   reset(): void {
+    this.clearSelection();
+    this.renderPanel();
+  }
+
+  private clearSelection(): void {
     this.selectedNodeId = null;
     this.selectedEdge = null;
+    this.selectedRobotId = null;
+    this.routeArmed = false;
     this.dragging = null;
-    this.renderPanel();
   }
 
   highlight(): Highlight | null {
     if (!this.enabled) return null;
-    return { nodeId: this.selectedNodeId, edge: this.selectedEdge };
+    let route: Highlight["route"] = null;
+    if (this.selectedRobotId) {
+      const robot = this.host.getResolved()?.robots.find((r) => r.id === this.selectedRobotId);
+      if (robot) {
+        route = {
+          color: robot.color,
+          loop: robot.loop,
+          stops: robot.stops.map((s) => ({ x: s.node.x, y: s.node.y })),
+        };
+      }
+    }
+    return { nodeId: this.selectedNodeId, edge: this.selectedEdge, route };
   }
 
   /* ---- geometry helpers ---- */
@@ -149,19 +167,27 @@ export class MapEditor {
     const [px, py] = this.canvasPoint(e);
     const node = this.nodeAt(px, py);
     if (node) {
+      if (this.routeArmed && this.selectedRobotId) {
+        this.appendStop(node.id);
+        return;
+      }
       if (e.shiftKey && this.selectedNodeId && this.selectedNodeId !== node.id) {
         this.connectNodes(this.selectedNodeId, node.id);
       } else {
         this.selectedNodeId = node.id;
         this.selectedEdge = null;
+        this.selectedRobotId = null;
+        this.routeArmed = false;
         this.dragging = this.startDrag(node.id);
       }
       this.renderPanel();
       return;
     }
+    if (this.routeArmed) return; // keep the route-editing selection on stray clicks
     const edge = this.edgeAt(px, py);
     this.selectedEdge = edge;
     this.selectedNodeId = null;
+    this.selectedRobotId = null;
     this.renderPanel();
   }
 
@@ -239,6 +265,11 @@ export class MapEditor {
 
   private onKeyDown(e: KeyboardEvent): void {
     if (!this.enabled) return;
+    if (e.key === "Escape" && this.routeArmed) {
+      this.routeArmed = false;
+      this.renderPanel();
+      return;
+    }
     if (e.key !== "Delete" && e.key !== "Backspace") return;
     const target = e.target as HTMLElement;
     if (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA") return;
@@ -360,6 +391,85 @@ export class MapEditor {
     this.renderPanel();
   }
 
+  /* ---- robot mutations ---- */
+
+  private rawRobot(id: string): RobotConfig | undefined {
+    return this.host.getRaw()?.robots.find((r) => r.id === id);
+  }
+
+  private addRobot(): void {
+    const raw = this.host.getRaw();
+    if (!raw) return;
+    const used = new Set(raw.robots.map((r) => r.id));
+    let id = "";
+    for (let i = 1; id === ""; i++) if (!used.has(`R${i}`)) id = `R${i}`;
+    raw.robots.push({ id, speedMps: 1, turnDurationSec: 2, loop: true, route: [] });
+    if (this.host.applyChanges()) {
+      this.selectRobot(id);
+      this.routeArmed = true; // start picking the route right away
+      this.renderPanel();
+    }
+  }
+
+  private deleteRobot(id: string): void {
+    const raw = this.host.getRaw();
+    if (!raw) return;
+    raw.robots = raw.robots.filter((r) => r.id !== id);
+    if (this.host.applyChanges()) {
+      this.selectedRobotId = null;
+      this.routeArmed = false;
+      this.renderPanel();
+    }
+  }
+
+  private selectRobot(id: string): void {
+    this.selectedRobotId = id;
+    this.selectedNodeId = null;
+    this.selectedEdge = null;
+    this.routeArmed = false;
+  }
+
+  private appendStop(nodeId: string): void {
+    const robot = this.selectedRobotId ? this.rawRobot(this.selectedRobotId) : undefined;
+    if (!robot) return;
+    const last = robot.route[robot.route.length - 1];
+    if (last !== undefined && (typeof last === "string" ? last : last.node) === nodeId) {
+      this.host.showMessage(`"${nodeId}" is already the last stop — consecutive stops must differ.`);
+      return;
+    }
+    robot.route.push(nodeId);
+    if (this.host.applyChanges()) this.renderPanel();
+  }
+
+  private removeStop(index: number): void {
+    const robot = this.selectedRobotId ? this.rawRobot(this.selectedRobotId) : undefined;
+    if (!robot) return;
+    const next = robot.route.filter((_, i) => i !== index);
+    // Removing a middle stop may leave two identical neighbors; drop the second.
+    for (let i = 1; i < next.length; i++) {
+      const a = typeof next[i - 1] === "string" ? next[i - 1] : (next[i - 1] as RouteStop).node;
+      const b = typeof next[i] === "string" ? next[i] : (next[i] as RouteStop).node;
+      if (a === b) next.splice(i, 1);
+    }
+    robot.route = next;
+    if (this.host.applyChanges()) this.renderPanel();
+  }
+
+  private setStopWait(index: number, text: string): void {
+    const robot = this.selectedRobotId ? this.rawRobot(this.selectedRobotId) : undefined;
+    if (!robot || robot.route[index] === undefined) return;
+    const entry = robot.route[index];
+    const nodeId = typeof entry === "string" ? entry : entry.node;
+    const value = text.trim() === "" ? 0 : Number(text);
+    if (!Number.isFinite(value) || value < 0) {
+      this.host.showMessage("Wait must be a non-negative number of seconds.");
+      this.renderPanel();
+      return;
+    }
+    robot.route[index] = value > 0 ? { node: nodeId, waitSec: value } : nodeId;
+    this.host.applyChanges();
+  }
+
   /* ---- panel DOM ---- */
 
   private updatePositionInputs(x: number, y: number): void {
@@ -400,7 +510,118 @@ export class MapEditor {
 
     if (this.selectedNodeId) this.renderNodeForm(this.selectedNodeId);
     else if (this.selectedEdge) this.renderEdgeForm(this.selectedEdge);
-    else this.panel.append(el("p", { class: "hint" }, "Nothing selected."));
+
+    this.renderRobotSection();
+  }
+
+  private renderRobotSection(): void {
+    const raw = this.host.getRaw();
+    if (!raw) return;
+    this.panel.append(el("h3", {}, "Robots"));
+    const chips = el("div", { class: "robot-chips" });
+    for (const robot of raw.robots) {
+      const chip = el("button", { class: robot.id === this.selectedRobotId ? "chip selected" : "chip" }, robot.id) as HTMLButtonElement;
+      const resolved = this.host.getResolved()?.robots.find((r) => r.id === robot.id);
+      if (resolved) chip.style.borderColor = resolved.color;
+      chip.addEventListener("click", () => {
+        this.selectRobot(robot.id);
+        this.renderPanel();
+      });
+      chips.append(chip);
+    }
+    const add = el("button", { class: "chip" }, "+ Add robot") as HTMLButtonElement;
+    add.addEventListener("click", () => this.addRobot());
+    chips.append(add);
+    this.panel.append(chips);
+
+    if (this.selectedRobotId) this.renderRobotForm(this.selectedRobotId);
+  }
+
+  private renderRobotForm(id: string): void {
+    const robot = this.rawRobot(id);
+    if (!robot) return;
+    const form = el("div", { class: "editor-form" });
+
+    const idInput = textField(form, "id", robot.id);
+    idInput.addEventListener("change", () => {
+      const newId = idInput.value.trim();
+      if (newId === "" || newId === id) return this.renderPanel();
+      if (this.host.getRaw()?.robots.some((r) => r.id === newId)) {
+        this.host.showMessage(`Robot id "${newId}" is already taken.`);
+        return this.renderPanel();
+      }
+      robot.id = newId;
+      if (this.host.applyChanges()) this.selectedRobotId = newId;
+      this.renderPanel();
+    });
+
+    const numeric = (label: string, key: "speedMps" | "turnDurationSec" | "startDelaySec") => {
+      const input = textField(form, label, robot[key] !== undefined ? String(robot[key]) : "");
+      input.type = "number";
+      input.step = "any";
+      input.min = "0";
+      input.addEventListener("change", () => {
+        if (input.value.trim() === "" && key === "startDelaySec") delete robot[key];
+        else robot[key] = Number(input.value);
+        this.host.applyChanges();
+        this.renderPanel();
+      });
+    };
+    numeric("speed (m/s)", "speedMps");
+    numeric("turn time (s)", "turnDurationSec");
+    numeric("start delay (s)", "startDelaySec");
+
+    const resolved = this.host.getResolved()?.robots.find((r) => r.id === id);
+    const colorWrap = el("label", { class: "field" }, "color ");
+    const colorInput = el("input", { type: "color" }) as HTMLInputElement;
+    colorInput.value = robot.color ?? resolved?.color ?? "#888888";
+    colorInput.addEventListener("change", () => {
+      robot.color = colorInput.value;
+      this.host.applyChanges();
+    });
+    colorWrap.append(colorInput);
+    form.append(colorWrap);
+
+    const loopWrap = el("label", { class: "field" }, "loop ");
+    const loopInput = el("input", { type: "checkbox" }) as HTMLInputElement;
+    loopInput.checked = robot.loop ?? false;
+    loopInput.addEventListener("change", () => {
+      robot.loop = loopInput.checked;
+      this.host.applyChanges();
+    });
+    loopWrap.append(loopInput);
+    form.append(loopWrap);
+
+    // Route
+    form.append(el("h3", {}, "Route"));
+    const armBtn = el("button", { class: this.routeArmed ? "primary" : "" }, this.routeArmed ? "Picking… (Esc to stop)" : "Pick stops on map") as HTMLButtonElement;
+    armBtn.addEventListener("click", () => {
+      this.routeArmed = !this.routeArmed;
+      this.renderPanel();
+    });
+    form.append(armBtn);
+    if (this.routeArmed) form.append(el("p", { class: "hint" }, "Click waypoints on the canvas to append them to the route."));
+
+    if (robot.route.length === 0) {
+      form.append(el("p", { class: "hint" }, "No stops yet — the robot is parked off-map until the route has 2+ stops."));
+    }
+    robot.route.forEach((entry, index) => {
+      const stop: RouteStop = typeof entry === "string" ? { node: entry } : entry;
+      const row = el("div", { class: "stop-row" });
+      row.append(el("span", { class: "stop-index" }, String(index + 1)), el("span", { class: "stop-node" }, stop.node));
+      const wait = el("input", { type: "number", step: "any", min: "0", placeholder: "wait s" }) as HTMLInputElement;
+      wait.value = stop.waitSec !== undefined && stop.waitSec > 0 ? String(stop.waitSec) : "";
+      wait.addEventListener("change", () => this.setStopWait(index, wait.value));
+      const remove = el("button", { class: "stop-remove", title: "Remove stop" }, "×") as HTMLButtonElement;
+      remove.addEventListener("click", () => this.removeStop(index));
+      row.append(wait, remove);
+      form.append(row);
+    });
+
+    const del = el("button", { class: "danger" }, "Delete robot") as HTMLButtonElement;
+    del.addEventListener("click", () => this.deleteRobot(id));
+    form.append(del);
+    this.panel.append(form);
   }
 
   private renderNodeForm(id: string): void {
