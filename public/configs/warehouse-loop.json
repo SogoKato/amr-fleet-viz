@@ -1,0 +1,63 @@
+{
+  "name": "Warehouse pickup loops",
+  "map": {
+    "nodes": [
+      { "id": "P1", "x": 0, "y": 0, "label": "Parking 1" },
+      { "id": "P2", "x": 6, "y": 0, "label": "Parking 2" },
+      { "id": "P3", "x": 12, "y": 0, "label": "Parking 3" },
+      { "id": "S1", "x": 0, "y": 4 },
+      { "id": "S2", "x": 6, "y": 4 },
+      { "id": "S3", "x": 12, "y": 4 },
+      { "id": "D1", "x": 0, "y": 8, "label": "Dock 1" },
+      { "id": "D2", "x": 6, "y": 8, "label": "Dock 2" },
+      { "id": "D3", "x": 12, "y": 8, "label": "Dock 3" }
+    ],
+    "edges": [
+      { "from": "S2", "to": "D2", "distance": 5.5 }
+    ]
+  },
+  "robots": [
+    {
+      "id": "R1",
+      "speedMps": 1.0,
+      "turnDurationSec": 2,
+      "loop": true,
+      "route": [
+        { "node": "P1", "waitSec": 2 },
+        "S1",
+        { "node": "D1", "waitSec": 5 },
+        "D2",
+        "S2",
+        "P1"
+      ]
+    },
+    {
+      "id": "R2",
+      "speedMps": 0.8,
+      "turnDurationSec": 1.5,
+      "loop": true,
+      "startDelaySec": 3,
+      "route": [
+        { "node": "P3", "waitSec": 2 },
+        "S3",
+        { "node": "D3", "waitSec": 4 },
+        "D2",
+        "S2",
+        "P3"
+      ]
+    },
+    {
+      "id": "R3",
+      "speedMps": 1.2,
+      "turnDurationSec": 1,
+      "loop": true,
+      "route": [
+        { "node": "P2", "waitSec": 3 },
+        "S2",
+        { "node": "D2", "waitSec": 6 },
+        "S2",
+        "P2"
+      ]
+    }
+  ]
+}

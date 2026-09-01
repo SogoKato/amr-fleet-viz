@@ -1,0 +1,41 @@
+{
+  "name": "Intersection crossing demo",
+  "map": {
+    "nodes": [
+      { "id": "W", "x": 0, "y": 4, "label": "West" },
+      { "id": "E", "x": 8, "y": 4, "label": "East" },
+      { "id": "S", "x": 4, "y": 0, "label": "South" },
+      { "id": "N", "x": 4, "y": 8, "label": "North" },
+      { "id": "X", "x": 4, "y": 4, "label": "Crossing" }
+    ]
+  },
+  "robots": [
+    {
+      "id": "R1",
+      "speedMps": 1.0,
+      "turnDurationSec": 2,
+      "loop": true,
+      "route": [
+        { "node": "W", "waitSec": 1 },
+        "X",
+        { "node": "E", "waitSec": 1 },
+        "X",
+        "W"
+      ]
+    },
+    {
+      "id": "R2",
+      "speedMps": 1.0,
+      "turnDurationSec": 2,
+      "loop": true,
+      "startDelaySec": 2,
+      "route": [
+        { "node": "S", "waitSec": 1 },
+        "X",
+        { "node": "N", "waitSec": 1 },
+        "X",
+        "S"
+      ]
+    }
+  ]
+}

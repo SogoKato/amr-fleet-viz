@@ -1,0 +1,17 @@
+{
+  "name": "amr-fleet-viz",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "screenshot": "vite build && node scripts/screenshot.mts"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3"
+  }
+}
