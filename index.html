@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AMR Fleet Viz</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0e11;
+        --panel: #161b22;
+        --border: #2d333b;
+        --text: #e6edf3;
+        --muted: #8b949e;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 16px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        flex-wrap: wrap;
+      }
+      header h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 600; }
+      header .scenario { color: var(--muted); font-size: 13px; }
+      button, select {
+        background: #21262d;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 5px 12px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button:hover, select:hover { background: #2d333b; }
+      button.primary { background: #1f6feb; border-color: #1f6feb; }
+      button.primary:hover { background: #388bfd; }
+      .clock {
+        font-variant-numeric: tabular-nums;
+        font-size: 13px;
+        color: var(--muted);
+        min-width: 90px;
+      }
+      main { flex: 1; display: flex; min-height: 0; }
+      #canvas { flex: 1; display: block; min-width: 0; }
+      aside {
+        width: 280px;
+        background: var(--panel);
+        border-left: 1px solid var(--border);
+        padding: 12px;
+        overflow-y: auto;
+        font-size: 13px;
+      }
+      aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 8px; }
+      .robot-row {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        margin-bottom: 4px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .robot-row .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; align-self: center; }
+      .robot-row .rid { font-weight: 600; }
+      .robot-row .rstatus { color: var(--muted); font-size: 12px; }
+      .robot-row.near { outline: 1px solid #ff2d2d; }
+      #error {
+        display: none;
+        margin: 8px 16px;
+        padding: 8px 12px;
+        background: #3d1418;
+        border: 1px solid #f85149;
+        border-radius: 6px;
+        font-size: 13px;
+        white-space: pre-wrap;
+      }
+      #drop-hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+      body.dragging::after {
+        content: "Drop a config JSON to load it";
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(31, 111, 235, 0.25);
+        border: 3px dashed #388bfd;
+        font-size: 20px;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>AMR Fleet Viz</h1>
+      <span class="scenario" id="scenario-name"></span>
+      <button class="primary" id="play-pause">Pause</button>
+      <button id="reset">Reset</button>
+      <label>
+        Speed
+        <select id="sim-speed">
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+          <option value="8">8×</option>
+        </select>
+      </label>
+      <span class="clock" id="clock">t = 0.0s</span>
+      <button id="load">Load config…</button>
+      <select id="samples"></select>
+      <input type="file" id="file-input" accept=".json,application/json" hidden />
+      <span id="drop-hint">or drop a JSON file anywhere</span>
+    </header>
+    <div id="error"></div>
+    <main>
+      <canvas id="canvas"></canvas>
+      <aside>
+        <h2>Robots</h2>
+        <div id="robot-list"></div>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
