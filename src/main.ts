@@ -59,9 +59,8 @@ function applyChanges(): boolean {
   }
 }
 
-function loadConfigText(text: string, name: string): void {
+function loadConfigObject(parsed: FleetConfig, name: string): void {
   try {
-    const parsed = JSON.parse(text) as FleetConfig;
     const resolved = resolveConfig(parsed);
     rawConfig = parsed;
     lastGoodJson = JSON.stringify(parsed);
@@ -76,6 +75,14 @@ function loadConfigText(text: string, name: string): void {
   } catch (err) {
     const prefix = err instanceof ConfigError ? "Invalid config" : "Failed to load config";
     showError(`${prefix}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function loadConfigText(text: string, name: string): void {
+  try {
+    loadConfigObject(JSON.parse(text) as FleetConfig, name);
+  } catch (err) {
+    showError(`Failed to load config: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -97,6 +104,13 @@ const editor = new MapEditor(canvas, renderer, editorPanelEl, {
 });
 
 function renderSidebar(states: RobotState[], near: Set<RobotState>): void {
+  if (states.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "rstatus";
+    empty.textContent = "No robots — add one in Edit map.";
+    robotListEl.replaceChildren(empty);
+    return;
+  }
   robotListEl.replaceChildren(
     ...states.map((state) => {
       const row = document.createElement("div");
@@ -160,11 +174,17 @@ saveBtn.addEventListener("click", () => {
   URL.revokeObjectURL(a.href);
 });
 
-editToggleBtn.addEventListener("click", () => {
-  const on = !editor.enabled;
+function setEditMode(on: boolean): void {
   editor.setEnabled(on);
   editToggleBtn.classList.toggle("active", on);
   editToggleBtn.textContent = on ? "Done editing" : "Edit map";
+}
+
+editToggleBtn.addEventListener("click", () => setEditMode(!editor.enabled));
+
+document.getElementById("new")!.addEventListener("click", () => {
+  loadConfigObject({ name: "New scenario", map: { nodes: [] }, robots: [] }, "unsaved");
+  setEditMode(true); // a blank scenario is only useful in edit mode
 });
 
 fileInput.addEventListener("change", async () => {

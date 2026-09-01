@@ -15,6 +15,8 @@ interface Viewport {
 export interface Highlight {
   nodeId: string | null;
   edge: { from: string; to: string } | null;
+  /** Route of the robot selected in the editor, drawn as a colored overlay. */
+  route: { color: string; loop: boolean; stops: { x: number; y: number }[] } | null;
 }
 
 export class Renderer {
@@ -55,8 +57,10 @@ export class Renderer {
   }
 
   private viewport(config: ResolvedConfig, width: number, height: number): Viewport {
-    const xs = config.nodes.map((n) => n.x);
-    const ys = config.nodes.map((n) => n.y);
+    // An empty map still needs a sensible viewport to draw the grid
+    // and place double-clicked nodes into.
+    const xs = config.nodes.length > 0 ? config.nodes.map((n) => n.x) : [-5, 5];
+    const ys = config.nodes.length > 0 ? config.nodes.map((n) => n.y) : [-4, 4];
     const minX = Math.min(...xs) - 1;
     const maxX = Math.max(...xs) + 1;
     const minY = Math.min(...ys) - 1;
@@ -85,8 +89,53 @@ export class Renderer {
     ctx.fillRect(0, 0, width, height);
     this.drawGrid(v, width, height);
     this.drawEdges(config, v, highlight?.edge ?? null);
+    if (highlight?.route) this.drawRoute(highlight.route, v);
     this.drawNodes(config, v, highlight?.nodeId ?? null);
-    for (const state of states) this.drawRobot(state, v, proximity.has(state));
+    for (const state of states) {
+      if (state.placed) this.drawRobot(state, v, proximity.has(state));
+    }
+  }
+
+  /** Overlay for the robot selected in the editor: its path plus stop order numbers. */
+  private drawRoute(route: NonNullable<Highlight["route"]>, v: Viewport): void {
+    const ctx = this.ctx;
+    const stops = route.stops;
+    if (stops.length === 0) return;
+    if (stops.length >= 2) {
+      ctx.save();
+      ctx.strokeStyle = route.color;
+      ctx.globalAlpha = 0.4;
+      ctx.lineWidth = 5;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      const [x0, y0] = this.toPx(v, stops[0].x, stops[0].y);
+      ctx.moveTo(x0, y0);
+      for (let i = 1; i < stops.length; i++) {
+        const [x, y] = this.toPx(v, stops[i].x, stops[i].y);
+        ctx.lineTo(x, y);
+      }
+      const last = stops[stops.length - 1];
+      if (route.loop && (last.x !== stops[0].x || last.y !== stops[0].y)) ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
+    // Visit order, grouped per node (a node can appear multiple times).
+    const orders = new Map<string, { x: number; y: number; indices: number[] }>();
+    stops.forEach((s, i) => {
+      const key = `${s.x},${s.y}`;
+      const entry = orders.get(key) ?? { x: s.x, y: s.y, indices: [] };
+      entry.indices.push(i + 1);
+      orders.set(key, entry);
+    });
+    ctx.font = "bold 11px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = route.color;
+    for (const { x, y, indices } of orders.values()) {
+      const [px, py] = this.toPx(v, x, y);
+      ctx.fillText(indices.join("·"), px, py + NODE_RADIUS_PX + 4);
+    }
   }
 
   private drawGrid(v: Viewport, width: number, height: number): void {
