@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "screenshot": "vite build && node scripts/screenshot.mts"
   },
   "devDependencies": {
+    "playwright": "^1.62.1",
     "typescript": "^5.9.2",
     "vite": "^7.1.3"
   }
