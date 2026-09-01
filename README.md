@@ -51,7 +51,9 @@ Scenarios are plain JSON files, so they are easy to version, share, and generate
     "edges": [
       // Optional. "distance" overrides the Euclidean distance between the
       // two nodes — e.g. to model a detour that is not drawn on the map.
-      // Overridden edges are labeled with a "*" on the canvas.
+      // Overridden edges are labeled in amber with a "*" on the canvas and
+      // keep their value when nodes are moved; edges without an override
+      // recompute automatically.
       { "from": "S2", "to": "D2", "distance": 5.5 }
     ]
   },

@@ -126,10 +126,17 @@ export class Renderer {
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
       ctx.stroke();
-      // Distance label; a "*" marks an explicit override of the drawn length.
+      // Distance label; a "*" marks an explicit override of the drawn length,
+      // shown in amber because it does not follow node moves.
       const label = `${edge.distance.toFixed(1)}m${edge.explicit ? "*" : ""}`;
-      ctx.fillStyle = isSelected ? "#79b8ff" : "rgba(255, 255, 255, 0.35)";
+      ctx.fillStyle = isSelected ? "#79b8ff" : edge.explicit ? "#e3b341" : "rgba(255, 255, 255, 0.35)";
       ctx.fillText(label, (x1 + x2) / 2, (y1 + y2) / 2 - 8);
+    }
+    if (config.edges.some((e) => e.explicit)) {
+      ctx.fillStyle = "#e3b341";
+      ctx.textAlign = "left";
+      ctx.fillText("* fixed distance override (ignores drawn length)", 10, v.height - 12);
+      ctx.textAlign = "center";
     }
   }
 
