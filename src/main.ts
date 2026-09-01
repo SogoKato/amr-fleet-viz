@@ -1,6 +1,8 @@
 import { ConfigError, resolveConfig } from "./config";
+import { MapEditor } from "./editor";
 import { Renderer } from "./renderer";
 import { proximityPairs, Simulation, type RobotState } from "./simulation";
+import type { FleetConfig } from "./types";
 
 const PROXIMITY_THRESHOLD_M = 0.8;
 const SAMPLES = ["warehouse-loop.json", "crossing-demo.json"];
@@ -13,12 +15,18 @@ const resetBtn = document.getElementById("reset") as HTMLButtonElement;
 const speedSelect = document.getElementById("sim-speed") as HTMLSelectElement;
 const clockEl = document.getElementById("clock")!;
 const loadBtn = document.getElementById("load") as HTMLButtonElement;
+const saveBtn = document.getElementById("save") as HTMLButtonElement;
+const editToggleBtn = document.getElementById("edit-toggle") as HTMLButtonElement;
+const editorPanelEl = document.getElementById("editor-panel")!;
 const fileInput = document.getElementById("file-input") as HTMLInputElement;
 const samplesSelect = document.getElementById("samples") as HTMLSelectElement;
 const scenarioNameEl = document.getElementById("scenario-name")!;
 const errorEl = document.getElementById("error")!;
 const robotListEl = document.getElementById("robot-list")!;
 
+let rawConfig: FleetConfig | null = null;
+let lastGoodJson = "";
+let sourceName = "";
 let simulation: Simulation | null = null;
 let simTime = 0;
 let playing = true;
@@ -34,14 +42,36 @@ function clearError(): void {
   errorEl.style.display = "none";
 }
 
-function loadConfigText(text: string, sourceName: string): void {
+/** Re-validate rawConfig and rebuild the simulation; revert on failure. */
+function applyChanges(): boolean {
+  if (!rawConfig) return false;
   try {
-    const resolved = resolveConfig(JSON.parse(text));
+    const resolved = resolveConfig(rawConfig);
+    simulation = new Simulation(resolved);
+    lastGoodJson = JSON.stringify(rawConfig);
+    scenarioNameEl.textContent = `${resolved.name} (${sourceName})`;
+    clearError();
+    return true;
+  } catch (err) {
+    showError(`Rejected edit: ${err instanceof Error ? err.message : String(err)}`);
+    rawConfig = JSON.parse(lastGoodJson) as FleetConfig;
+    return false;
+  }
+}
+
+function loadConfigText(text: string, name: string): void {
+  try {
+    const parsed = JSON.parse(text) as FleetConfig;
+    const resolved = resolveConfig(parsed);
+    rawConfig = parsed;
+    lastGoodJson = JSON.stringify(parsed);
+    sourceName = name;
     simulation = new Simulation(resolved);
     simTime = 0;
     playing = true;
     playPauseBtn.textContent = "Pause";
-    scenarioNameEl.textContent = `${resolved.name} (${sourceName})`;
+    scenarioNameEl.textContent = `${resolved.name} (${name})`;
+    editor.reset();
     clearError();
   } catch (err) {
     const prefix = err instanceof ConfigError ? "Invalid config" : "Failed to load config";
@@ -58,6 +88,13 @@ async function loadSample(name: string): Promise<void> {
     showError(`Failed to fetch sample "${name}": ${err instanceof Error ? err.message : String(err)}`);
   }
 }
+
+const editor = new MapEditor(canvas, renderer, editorPanelEl, {
+  getRaw: () => rawConfig,
+  getResolved: () => simulation?.config ?? null,
+  applyChanges,
+  showMessage: showError,
+});
 
 function renderSidebar(states: RobotState[], near: Set<RobotState>): void {
   robotListEl.replaceChildren(
@@ -91,7 +128,7 @@ function frame(now: number): void {
       near.add(a);
       near.add(b);
     }
-    renderer.draw(simulation.config, states, near);
+    renderer.draw(simulation.config, states, near, editor.highlight());
     renderSidebar(states, near);
     clockEl.textContent = `t = ${simTime.toFixed(1)}s`;
   }
@@ -112,6 +149,23 @@ speedSelect.addEventListener("change", () => {
 });
 
 loadBtn.addEventListener("click", () => fileInput.click());
+
+saveBtn.addEventListener("click", () => {
+  if (!rawConfig) return;
+  const blob = new Blob([JSON.stringify(rawConfig, null, 2) + "\n"], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = sourceName.endsWith(".json") ? sourceName : "scenario.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+editToggleBtn.addEventListener("click", () => {
+  const on = !editor.enabled;
+  editor.setEnabled(on);
+  editToggleBtn.classList.toggle("active", on);
+  editToggleBtn.textContent = on ? "Done editing" : "Edit map";
+});
 
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
