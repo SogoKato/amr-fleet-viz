@@ -88,6 +88,9 @@ export function resolveConfig(raw: unknown): ResolvedConfig {
     if (r.startDelaySec !== undefined && (!Number.isFinite(r.startDelaySec) || r.startDelaySec < 0)) {
       fail(`robot "${r.id}": startDelaySec must be a non-negative number`);
     }
+    if (r.cycleSec !== undefined && (!Number.isFinite(r.cycleSec) || r.cycleSec <= 0)) {
+      fail(`robot "${r.id}": cycleSec must be a positive number`);
+    }
     if (r.route !== undefined && !Array.isArray(r.route)) fail(`robot "${r.id}": route must be an array`);
     if (r.loop !== undefined && typeof r.loop !== "boolean" && !Array.isArray(r.loop)) {
       fail(`robot "${r.id}": loop must be a boolean or an array of stops`);
@@ -149,6 +152,7 @@ export function resolveConfig(raw: unknown): ResolvedConfig {
       turnDurationSec: r.turnDurationSec,
       route,
       loop,
+      cycleSec: r.cycleSec ?? 0,
       startDelaySec: r.startDelaySec ?? 0,
     });
   });

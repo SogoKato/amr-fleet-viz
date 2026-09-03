@@ -48,6 +48,13 @@ export interface RobotConfig {
    * the list doesn't already end there). Default false.
    */
   loop?: boolean | (string | RouteStop)[];
+  /**
+   * Fixed duration of one lap of the loop, in seconds. After the pause at
+   * the loop's first stop the robot holds there until the lap's slot is up,
+   * so robots sharing a cycleSec stay in step instead of drifting apart.
+   * Must not be shorter than the lap's natural duration. Ignored without a loop.
+   */
+  cycleSec?: number;
   /** Seconds to hold at the first stop before the very first departure. Default 0. */
   startDelaySec?: number;
 }
@@ -93,6 +100,8 @@ export interface ResolvedRobot {
   route: ResolvedStop[];
   /** Stops repeated forever after `route`; empty when the robot goes idle at the end of `route`. */
   loop: ResolvedStop[];
+  /** Fixed lap duration in seconds; 0 means the loop runs at its natural pace. */
+  cycleSec: number;
   startDelaySec: number;
 }
 

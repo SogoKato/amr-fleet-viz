@@ -572,13 +572,14 @@ export class MapEditor {
       this.renderPanel();
     });
 
-    const numeric = (label: string, key: "speedMps" | "turnDurationSec" | "startDelaySec") => {
+    const numeric = (label: string, key: "speedMps" | "turnDurationSec" | "startDelaySec" | "cycleSec", placeholder = "") => {
       const input = textField(form, label, robot[key] !== undefined ? String(robot[key]) : "");
       input.type = "number";
       input.step = "any";
       input.min = "0";
+      input.placeholder = placeholder;
       input.addEventListener("change", () => {
-        if (input.value.trim() === "" && key === "startDelaySec") delete robot[key];
+        if (input.value.trim() === "" && (key === "startDelaySec" || key === "cycleSec")) delete robot[key];
         else robot[key] = Number(input.value);
         this.host.applyChanges();
         this.renderPanel();
@@ -587,6 +588,7 @@ export class MapEditor {
     numeric("speed (m/s)", "speedMps");
     numeric("turn time (s)", "turnDurationSec");
     numeric("start delay (s)", "startDelaySec");
+    numeric("cycle (s)", "cycleSec", "natural");
 
     const resolved = this.host.getResolved()?.robots.find((r) => r.id === id);
     const colorWrap = el("label", { class: "field" }, "color ");
