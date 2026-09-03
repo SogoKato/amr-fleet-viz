@@ -5,7 +5,7 @@ import { proximityPairs, Simulation, type RobotState } from "./simulation";
 import type { FleetConfig } from "./types";
 
 const PROXIMITY_THRESHOLD_M = 0.8;
-const SAMPLES = ["warehouse-loop.json", "crossing-demo.json"];
+const SAMPLES = ["warehouse-loop.json", "crossing-demo.json", "synced-handoff.json"];
 
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const renderer = new Renderer(canvas);

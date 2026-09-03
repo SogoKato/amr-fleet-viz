@@ -30,8 +30,8 @@ Click **Edit map** to build or adjust a scenario directly on the canvas — or *
 - **Drag** a waypoint to move it (snapped); select it to edit its id, label, and exact coordinates in the sidebar. A waypoint on one fixed-distance edge can't stretch that edge — it swings on an arc around its neighbor; with two or more fixed-distance edges it is locked to its coordinates (edit x/y in the sidebar).
 - **Shift+click** another waypoint while one is selected to connect an edge, then type an explicit **distance** in the sidebar (leave empty for the automatic straight-line distance).
 - **Del** removes the selected waypoint or edge. Waypoints used by a robot's route are protected — and edits that would break the scenario are rejected and rolled back.
-- **Robots**: add or delete robots in the sidebar and edit their id, color, speed, turn time, start delay, and looping.
-- **Routes**: with a robot selected, click **Pick stops on map** and then click waypoints on the canvas to build its route (Esc to stop picking). The selected robot's route is drawn as a colored overlay with visit order numbers; each stop's wait time is set inline in the stop list.
+- **Robots**: add or delete robots in the sidebar and edit their id, color, speed, turn time, start delay, looping, and cycle time.
+- **Routes**: with a robot selected, click **Pick stops on map** and then click waypoints on the canvas to build its route (Esc to stop picking). The selected robot's route is drawn as a colored overlay with visit order numbers; each stop's wait time is set inline in the stop list. For looping robots, the ↻ radio marks where the loop starts — stops above it form a one-time lead-in, drawn dashed on the canvas.
 - **Save config** downloads the current scenario (map + robots) as JSON, so anything built in the UI stays portable.
 
 ## Configuration files
@@ -72,6 +72,17 @@ Scenarios are plain JSON files, so they are easy to version, share, and generate
         "S2",
         "P1"
       ]
+    },
+    {
+      "id": "R2",
+      "speedMps": 1.0,
+      "turnDurationSec": 2,
+      "route": ["P1"],           // travelled once: a lead-in from the parking spot…
+      "loop": [                  // …into a loop that repeats forever
+        "S2",
+        { "node": "D2", "waitSec": 5 }
+      ],
+      "cycleSec": 30             // optional; fixed lap duration (see below)
     }
   ]
 }
@@ -84,6 +95,8 @@ Scenarios are plain JSON files, so they are easy to version, share, and generate
 - **Turning**: whenever the travel direction changes at a waypoint, the robot spends `turnDurationSec` seconds rotating in place before departing.
 - **Waiting**: `waitSec` on a route stop pauses the robot there before it turns and departs.
 - **Looping**: with `"loop": true` the robot returns to its first stop (an implicit final hop is added if the route doesn't already end there) and repeats forever. Without it, the robot goes idle at the last stop.
+- **Lead-in**: when `loop` is a list of stops, `route` is travelled once (it may be omitted, or hold just the starting waypoint) and then the loop repeats forever from its own first stop. Use this for one-time moves such as leaving a parking spot, so they aren't replayed every lap.
+- **Fixed cycle**: `cycleSec` makes every lap of the loop take exactly that long — after the pause at the loop's first stop, the robot holds there until the lap's slot is up. Robots sharing a `cycleSec` (and the same `startDelaySec`) stay in step instead of drifting apart as their natural lap lengths differ. A lap that would naturally take longer than `cycleSec` is rejected as an invalid config.
 - Routes are fixed — there is no path planning or collision avoidance. That's the point: the visualizer shows you *where* fixed routes would interfere.
 
 ## Development
