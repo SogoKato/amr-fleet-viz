@@ -1,4 +1,4 @@
-import { edgeKey, euclidean } from "./config";
+import { edgeKey, euclidean, robotPath, setRobotPath, stopNode } from "./config";
 import type { Highlight, Renderer } from "./renderer";
 import type { EdgeConfig, FleetConfig, MapNode, NodeConfig, ResolvedConfig, RobotConfig, RouteStop } from "./types";
 
@@ -84,8 +84,8 @@ export class MapEditor {
       if (robot) {
         route = {
           color: robot.color,
-          loop: robot.loop,
-          stops: robot.stops.map((s) => ({ x: s.node.x, y: s.node.y })),
+          stops: [...robot.route, ...robot.loop].map((s) => ({ x: s.node.x, y: s.node.y })),
+          loopFrom: robot.loop.length > 0 ? robot.route.length : null,
         };
       }
     }
@@ -156,7 +156,7 @@ export class MapEditor {
     const raw = this.host.getRaw();
     if (!raw) return [];
     return raw.robots
-      .filter((r) => r.route.some((s) => (typeof s === "string" ? s : s.node) === nodeId))
+      .filter((r) => robotPath(r).stops.some((s) => stopNode(s) === nodeId))
       .map((r) => r.id);
   }
 
@@ -353,10 +353,12 @@ export class MapEditor {
       if (e.to === oldId) e.to = newId;
     }
     for (const robot of raw.robots) {
-      robot.route = robot.route.map((s): string | RouteStop => {
+      const { stops, loopFrom } = robotPath(robot);
+      const renamed = stops.map((s): string | RouteStop => {
         if (typeof s === "string") return s === oldId ? newId : s;
         return s.node === oldId ? { ...s, node: newId } : s;
       });
+      setRobotPath(robot, renamed, loopFrom);
     }
     if (this.host.applyChanges()) {
       this.selectedNodeId = newId;
@@ -432,42 +434,57 @@ export class MapEditor {
   private appendStop(nodeId: string): void {
     const robot = this.selectedRobotId ? this.rawRobot(this.selectedRobotId) : undefined;
     if (!robot) return;
-    const last = robot.route[robot.route.length - 1];
-    if (last !== undefined && (typeof last === "string" ? last : last.node) === nodeId) {
+    const { stops, loopFrom } = robotPath(robot);
+    const last = stops[stops.length - 1];
+    if (last !== undefined && stopNode(last) === nodeId) {
       this.host.showMessage(`"${nodeId}" is already the last stop — consecutive stops must differ.`);
       return;
     }
-    robot.route.push(nodeId);
+    setRobotPath(robot, [...stops, nodeId], loopFrom);
     if (this.host.applyChanges()) this.renderPanel();
   }
 
   private removeStop(index: number): void {
     const robot = this.selectedRobotId ? this.rawRobot(this.selectedRobotId) : undefined;
     if (!robot) return;
-    const next = robot.route.filter((_, i) => i !== index);
+    const { stops, loopFrom } = robotPath(robot);
+    const next = stops.filter((_, i) => i !== index);
+    let nextLoopFrom = loopFrom !== null && loopFrom > index ? loopFrom - 1 : loopFrom;
     // Removing a middle stop may leave two identical neighbors; drop the second.
     for (let i = 1; i < next.length; i++) {
-      const a = typeof next[i - 1] === "string" ? next[i - 1] : (next[i - 1] as RouteStop).node;
-      const b = typeof next[i] === "string" ? next[i] : (next[i] as RouteStop).node;
-      if (a === b) next.splice(i, 1);
+      if (stopNode(next[i - 1]) === stopNode(next[i])) {
+        next.splice(i, 1);
+        if (nextLoopFrom !== null && nextLoopFrom > i) nextLoopFrom--;
+      }
     }
-    robot.route = next;
+    if (nextLoopFrom !== null && nextLoopFrom >= next.length) nextLoopFrom = next.length === 0 ? 0 : next.length - 1;
+    setRobotPath(robot, next, nextLoopFrom);
     if (this.host.applyChanges()) this.renderPanel();
   }
 
   private setStopWait(index: number, text: string): void {
     const robot = this.selectedRobotId ? this.rawRobot(this.selectedRobotId) : undefined;
-    if (!robot || robot.route[index] === undefined) return;
-    const entry = robot.route[index];
-    const nodeId = typeof entry === "string" ? entry : entry.node;
+    if (!robot) return;
+    const { stops, loopFrom } = robotPath(robot);
+    if (stops[index] === undefined) return;
+    const nodeId = stopNode(stops[index]);
     const value = text.trim() === "" ? 0 : Number(text);
     if (!Number.isFinite(value) || value < 0) {
       this.host.showMessage("Wait must be a non-negative number of seconds.");
       this.renderPanel();
       return;
     }
-    robot.route[index] = value > 0 ? { node: nodeId, waitSec: value } : nodeId;
+    stops[index] = value > 0 ? { node: nodeId, waitSec: value } : nodeId;
+    setRobotPath(robot, stops, loopFrom);
     this.host.applyChanges();
+  }
+
+  /** Make the loop start at `index` (stops before it become the one-time lead-in), or stop looping with null. */
+  private setLoopFrom(index: number | null): void {
+    const robot = this.selectedRobotId ? this.rawRobot(this.selectedRobotId) : undefined;
+    if (!robot) return;
+    setRobotPath(robot, robotPath(robot).stops, index);
+    if (this.host.applyChanges()) this.renderPanel();
   }
 
   /* ---- panel DOM ---- */
@@ -555,13 +572,14 @@ export class MapEditor {
       this.renderPanel();
     });
 
-    const numeric = (label: string, key: "speedMps" | "turnDurationSec" | "startDelaySec") => {
+    const numeric = (label: string, key: "speedMps" | "turnDurationSec" | "startDelaySec" | "cycleSec", placeholder = "") => {
       const input = textField(form, label, robot[key] !== undefined ? String(robot[key]) : "");
       input.type = "number";
       input.step = "any";
       input.min = "0";
+      input.placeholder = placeholder;
       input.addEventListener("change", () => {
-        if (input.value.trim() === "" && key === "startDelaySec") delete robot[key];
+        if (input.value.trim() === "" && (key === "startDelaySec" || key === "cycleSec")) delete robot[key];
         else robot[key] = Number(input.value);
         this.host.applyChanges();
         this.renderPanel();
@@ -570,6 +588,7 @@ export class MapEditor {
     numeric("speed (m/s)", "speedMps");
     numeric("turn time (s)", "turnDurationSec");
     numeric("start delay (s)", "startDelaySec");
+    numeric("cycle (s)", "cycleSec", "natural");
 
     const resolved = this.host.getResolved()?.robots.find((r) => r.id === id);
     const colorWrap = el("label", { class: "field" }, "color ");
@@ -582,13 +601,11 @@ export class MapEditor {
     colorWrap.append(colorInput);
     form.append(colorWrap);
 
+    const { stops, loopFrom } = robotPath(robot);
     const loopWrap = el("label", { class: "field" }, "loop ");
     const loopInput = el("input", { type: "checkbox" }) as HTMLInputElement;
-    loopInput.checked = robot.loop ?? false;
-    loopInput.addEventListener("change", () => {
-      robot.loop = loopInput.checked;
-      this.host.applyChanges();
-    });
+    loopInput.checked = loopFrom !== null;
+    loopInput.addEventListener("change", () => this.setLoopFrom(loopInput.checked ? 0 : null));
     loopWrap.append(loopInput);
     form.append(loopWrap);
 
@@ -602,13 +619,22 @@ export class MapEditor {
     form.append(armBtn);
     if (this.routeArmed) form.append(el("p", { class: "hint" }, "Click waypoints on the canvas to append them to the route."));
 
-    if (robot.route.length === 0) {
+    if (stops.length === 0) {
       form.append(el("p", { class: "hint" }, "No stops yet — the robot is parked off-map until the route has 2+ stops."));
+    } else if (loopFrom !== null) {
+      form.append(el("p", { class: "hint" }, "↻ marks where the loop starts; stops above it are travelled once as a lead-in."));
     }
-    robot.route.forEach((entry, index) => {
+    stops.forEach((entry, index) => {
       const stop: RouteStop = typeof entry === "string" ? { node: entry } : entry;
-      const row = el("div", { class: "stop-row" });
-      row.append(el("span", { class: "stop-index" }, String(index + 1)), el("span", { class: "stop-node" }, stop.node));
+      const row = el("div", { class: loopFrom !== null && index < loopFrom ? "stop-row lead-in" : "stop-row" });
+      row.append(el("span", { class: "stop-index" }, String(index + 1)));
+      if (loopFrom !== null) {
+        const mark = el("input", { type: "radio", name: "loop-from", title: "Loop starts here" }) as HTMLInputElement;
+        mark.checked = index === loopFrom;
+        mark.addEventListener("change", () => this.setLoopFrom(index));
+        row.append(mark);
+      }
+      row.append(el("span", { class: "stop-node" }, stop.node));
       const wait = el("input", { type: "number", step: "any", min: "0", placeholder: "wait s" }) as HTMLInputElement;
       wait.value = stop.waitSec !== undefined && stop.waitSec > 0 ? String(stop.waitSec) : "";
       wait.addEventListener("change", () => this.setStopWait(index, wait.value));

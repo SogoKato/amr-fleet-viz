@@ -1,0 +1,37 @@
+{
+  "name": "Synchronized handoff",
+  "map": {
+    "nodes": [
+      { "id": "PA", "x": 0, "y": 0, "label": "Parking A" },
+      { "id": "PB", "x": 12, "y": 0, "label": "Parking B" },
+      { "id": "A", "x": 0, "y": 4, "label": "Dock A" },
+      { "id": "H", "x": 5, "y": 4, "label": "Handoff" },
+      { "id": "B", "x": 12, "y": 4, "label": "Dock B" }
+    ]
+  },
+  "robots": [
+    {
+      "id": "R1",
+      "speedMps": 1.0,
+      "turnDurationSec": 2,
+      "route": ["PA"],
+      "loop": [
+        { "node": "A", "waitSec": 2 },
+        { "node": "H", "waitSec": 3 }
+      ],
+      "cycleSec": 30
+    },
+    {
+      "id": "R2",
+      "speedMps": 1.0,
+      "turnDurationSec": 2,
+      "startDelaySec": 15,
+      "route": ["PB"],
+      "loop": [
+        { "node": "B", "waitSec": 2 },
+        { "node": "H", "waitSec": 3 }
+      ],
+      "cycleSec": 30
+    }
+  ]
+}

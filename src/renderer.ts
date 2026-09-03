@@ -16,7 +16,12 @@ export interface Highlight {
   nodeId: string | null;
   edge: { from: string; to: string } | null;
   /** Route of the robot selected in the editor, drawn as a colored overlay. */
-  route: { color: string; loop: boolean; stops: { x: number; y: number }[] } | null;
+  route: {
+    color: string;
+    stops: { x: number; y: number }[];
+    /** Index into `stops` where the loop begins; null when the robot doesn't loop. */
+    loopFrom: number | null;
+  } | null;
 }
 
 export class Renderer {
@@ -96,6 +101,16 @@ export class Renderer {
     }
   }
 
+  private tracePath(points: { x: number; y: number }[], v: Viewport): void {
+    const ctx = this.ctx;
+    ctx.beginPath();
+    points.forEach((p, i) => {
+      const [x, y] = this.toPx(v, p.x, p.y);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+  }
+
   /** Overlay for the robot selected in the editor: its path plus stop order numbers. */
   private drawRoute(route: NonNullable<Highlight["route"]>, v: Viewport): void {
     const ctx = this.ctx;
@@ -105,19 +120,26 @@ export class Renderer {
       ctx.save();
       ctx.strokeStyle = route.color;
       ctx.globalAlpha = 0.4;
-      ctx.lineWidth = 5;
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
-      ctx.beginPath();
-      const [x0, y0] = this.toPx(v, stops[0].x, stops[0].y);
-      ctx.moveTo(x0, y0);
-      for (let i = 1; i < stops.length; i++) {
-        const [x, y] = this.toPx(v, stops[i].x, stops[i].y);
-        ctx.lineTo(x, y);
+      const loopFrom = route.loopFrom;
+      // Lead-in (travelled once): thin and dashed, up to and including the loop's first stop.
+      if (loopFrom !== null && loopFrom > 0) {
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 6]);
+        this.tracePath(stops.slice(0, loopFrom + 1), v);
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
-      const last = stops[stops.length - 1];
-      if (route.loop && (last.x !== stops[0].x || last.y !== stops[0].y)) ctx.closePath();
-      ctx.stroke();
+      // Loop body, closed back to its first stop — or the whole route when not looping.
+      const body = stops.slice(loopFrom ?? 0);
+      if (body.length >= 2) {
+        ctx.lineWidth = 5;
+        this.tracePath(body, v);
+        const last = body[body.length - 1];
+        if (loopFrom !== null && (last.x !== body[0].x || last.y !== body[0].y)) ctx.closePath();
+        ctx.stroke();
+      }
       ctx.restore();
     }
     // Visit order, grouped per node (a node can appear multiple times).
