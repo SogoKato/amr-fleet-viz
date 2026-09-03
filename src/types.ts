@@ -35,10 +35,19 @@ export interface RobotConfig {
   speedMps: number;
   /** Seconds spent on each in-place turn (whenever the travel direction changes). */
   turnDurationSec: number;
-  /** Ordered list of node ids to visit. */
-  route: (string | RouteStop)[];
-  /** When true, the robot returns to the first stop and repeats forever. Default false. */
-  loop?: boolean;
+  /**
+   * Ordered list of stops to visit once. With `loop` set to a stop list this
+   * is the lead-in travelled before entering the loop and may be omitted
+   * (the robot then starts at the loop's first stop).
+   */
+  route?: (string | RouteStop)[];
+  /**
+   * Repeat forever. `true` repeats `route` itself, returning to its first
+   * stop. A stop list is travelled after `route` and then repeated forever,
+   * returning to its own first stop (an implicit closing hop is added when
+   * the list doesn't already end there). Default false.
+   */
+  loop?: boolean | (string | RouteStop)[];
   /** Seconds to hold at the first stop before the very first departure. Default 0. */
   startDelaySec?: number;
 }
@@ -80,8 +89,10 @@ export interface ResolvedRobot {
   color: string;
   speedMps: number;
   turnDurationSec: number;
-  stops: ResolvedStop[];
-  loop: boolean;
+  /** Stops travelled once, in order. Empty only when the robot starts directly on its loop. */
+  route: ResolvedStop[];
+  /** Stops repeated forever after `route`; empty when the robot goes idle at the end of `route`. */
+  loop: ResolvedStop[];
   startDelaySec: number;
 }
 

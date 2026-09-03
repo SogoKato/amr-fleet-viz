@@ -1,5 +1,5 @@
 import { hopDistance } from "./config";
-import type { MapNode, ResolvedConfig, ResolvedRobot } from "./types";
+import type { MapNode, ResolvedConfig, ResolvedRobot, ResolvedStop } from "./types";
 
 export type Phase = "waiting" | "turning" | "moving" | "idle";
 
@@ -44,40 +44,67 @@ function angleDelta(a: number, b: number): number {
   return d;
 }
 
+/** One arrival on a robot's path: where it lands and how long it pauses there. */
+interface Visit {
+  node: MapNode;
+  waitSec: number;
+  /** Arriving here completes one lap of the loop. */
+  endsLap: boolean;
+}
+
 /** Precomputed timeline for one robot. */
 class RobotTimeline {
   readonly robot: ResolvedRobot;
+  /** Every stop in travel order: the one-time route followed by the loop body. */
+  private readonly path: ResolvedStop[];
   private readonly segments: Segment[] = [];
   private readonly cycleStart: number;
   private readonly cycleDuration: number;
 
   constructor(config: ResolvedConfig, robot: ResolvedRobot) {
     this.robot = robot;
-    const stops = robot.stops;
-    if (stops.length === 0) {
+    const path = [...robot.route, ...robot.loop];
+    this.path = path;
+    if (path.length === 0) {
       this.cycleStart = 0;
       this.cycleDuration = 0;
       return;
     }
-    const first = stops[0].node;
+    const first = path[0].node;
+    const toVisit = (s: ResolvedStop): Visit => ({ node: s.node, waitSec: s.waitSec, endsLap: false });
 
-    // Hops travelled in one pass; a loop returns to the first stop when needed.
-    const hopTargets: { to: MapNode; waitSecOnArrival: number }[] = [];
-    for (let i = 1; i < stops.length; i++) {
-      hopTargets.push({ to: stops[i].node, waitSecOnArrival: stops[i].waitSec });
-    }
-    if (robot.loop && stops[stops.length - 1].node !== first) {
-      hopTargets.push({ to: first, waitSecOnArrival: stops[0].waitSec });
+    // A loop of a single stop has nowhere to go; the robot just ends there.
+    const looping = robot.loop.length >= 2;
+    const visits: Visit[] = (looping ? robot.route : path).slice(1).map(toVisit);
+
+    // Looping robots get two laps precomputed: the first is entered from the
+    // lead-in (or from standstill) and may turn differently on departure;
+    // the second is what repeats forever.
+    let lap: Visit[] = [];
+    if (looping) {
+      const [head, ...rest] = robot.loop;
+      lap = rest.map(toVisit);
+      const last = lap[lap.length - 1];
+      if (last.node === head.node) {
+        // The loop closes explicitly: the pause at the end and at the start
+        // of the next lap happen at the same stop, back to back.
+        last.waitSec += head.waitSec;
+        last.endsLap = true;
+      } else {
+        lap.push({ node: head.node, waitSec: head.waitSec, endsLap: true });
+      }
+      if (robot.route.length > 0) visits.push(toVisit(head));
+      visits.push(...lap, ...lap);
     }
 
-    // Looping robots start facing the way they will face on every later lap
-    // (the direction they arrive from), so one precomputed cycle repeats exactly.
+    // Without a lead-in, start facing the way every later lap arrives so the
+    // first lap departs exactly like the rest.
     let heading = 0;
-    if (hopTargets.length > 0) {
-      const lastFrom = hopTargets.length >= 2 ? hopTargets[hopTargets.length - 2].to : first;
-      heading = robot.loop
-        ? headingOf(lastFrom, hopTargets[hopTargets.length - 1].to)
-        : headingOf(first, hopTargets[0].to);
+    if (looping && robot.route.length === 0) {
+      const closingFrom = lap.length >= 2 ? lap[lap.length - 2].node : first;
+      heading = headingOf(closingFrom, lap[lap.length - 1].node);
+    } else if (visits.length > 0) {
+      heading = headingOf(first, visits[0].node);
     }
 
     let t = 0;
@@ -85,32 +112,40 @@ class RobotTimeline {
       this.push({ phase: "idle", start: t, end: t + robot.startDelaySec, at: first, headingFrom: heading, headingTo: heading });
       t += robot.startDelaySec;
     }
-    this.cycleStart = t;
 
     let current = first;
-    let pendingWait = stops[0].waitSec;
-    for (const hop of hopTargets) {
+    let pendingWait = path[0].waitSec;
+    const lapEnds: number[] = [];
+    for (const visit of visits) {
       if (pendingWait > 0) {
         this.push({ phase: "waiting", start: t, end: t + pendingWait, at: current, headingFrom: heading, headingTo: heading });
         t += pendingWait;
       }
-      const targetHeading = headingOf(current, hop.to);
+      const targetHeading = headingOf(current, visit.node);
       if (Math.abs(angleDelta(heading, targetHeading)) > TURN_EPSILON && robot.turnDurationSec > 0) {
         this.push({ phase: "turning", start: t, end: t + robot.turnDurationSec, at: current, headingFrom: heading, headingTo: targetHeading });
         t += robot.turnDurationSec;
       }
       heading = targetHeading;
-      const travelSec = hopDistance(config, current, hop.to) / robot.speedMps;
-      this.push({ phase: "moving", start: t, end: t + travelSec, from: current, to: hop.to, headingFrom: heading, headingTo: heading });
+      const travelSec = hopDistance(config, current, visit.node) / robot.speedMps;
+      this.push({ phase: "moving", start: t, end: t + travelSec, from: current, to: visit.node, headingFrom: heading, headingTo: heading });
       t += travelSec;
-      current = hop.to;
-      pendingWait = hop.waitSecOnArrival;
+      current = visit.node;
+      pendingWait = visit.waitSec;
+      if (visit.endsLap) lapEnds.push(t);
     }
-    if (!robot.loop && pendingWait > 0) {
-      this.push({ phase: "waiting", start: t, end: t + pendingWait, at: current, headingFrom: heading, headingTo: heading });
-      t += pendingWait;
+    if (looping) {
+      // No trailing pause: the cycle wraps to the pause recorded at the end of the first lap.
+      this.cycleStart = lapEnds[0];
+      this.cycleDuration = lapEnds[1] - lapEnds[0];
+    } else {
+      if (pendingWait > 0) {
+        this.push({ phase: "waiting", start: t, end: t + pendingWait, at: current, headingFrom: heading, headingTo: heading });
+        t += pendingWait;
+      }
+      this.cycleStart = t;
+      this.cycleDuration = 0;
     }
-    this.cycleDuration = t - this.cycleStart;
   }
 
   private push(segment: Segment): void {
@@ -118,8 +153,8 @@ class RobotTimeline {
   }
 
   stateAt(time: number): RobotState {
-    const stops = this.robot.stops;
-    if (stops.length === 0) {
+    const path = this.path;
+    if (path.length === 0) {
       return {
         robot: this.robot,
         x: 0,
@@ -134,14 +169,14 @@ class RobotTimeline {
     if (time < 0) time = 0;
 
     let localTime = time;
-    if (this.robot.loop && this.cycleDuration > 0 && time >= this.cycleStart) {
+    if (this.cycleDuration > 0 && time >= this.cycleStart) {
       localTime = this.cycleStart + ((time - this.cycleStart) % this.cycleDuration);
     }
 
     const segment = this.segments.find((s) => localTime >= s.start && localTime < s.end);
     if (!segment) {
       // Non-looping robot that finished its route (or a robot with an empty timeline).
-      const last = stops[stops.length - 1].node;
+      const last = path[path.length - 1].node;
       const lastSegment = this.segments[this.segments.length - 1];
       return {
         robot: this.robot,

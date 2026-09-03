@@ -5,6 +5,7 @@ import type {
   ResolvedConfig,
   ResolvedRobot,
   ResolvedStop,
+  RobotConfig,
   RouteStop,
 } from "./types";
 
@@ -87,26 +88,48 @@ export function resolveConfig(raw: unknown): ResolvedConfig {
     if (r.startDelaySec !== undefined && (!Number.isFinite(r.startDelaySec) || r.startDelaySec < 0)) {
       fail(`robot "${r.id}": startDelaySec must be a non-negative number`);
     }
-    if (!Array.isArray(r.route)) fail(`robot "${r.id}": route must be an array`);
+    if (r.route !== undefined && !Array.isArray(r.route)) fail(`robot "${r.id}": route must be an array`);
+    if (r.loop !== undefined && typeof r.loop !== "boolean" && !Array.isArray(r.loop)) {
+      fail(`robot "${r.id}": loop must be a boolean or an array of stops`);
+    }
+    if (r.route === undefined && !Array.isArray(r.loop)) {
+      fail(`robot "${r.id}": route is required unless loop is an array of stops`);
+    }
 
-    const stops: ResolvedStop[] = r.route.map((entry) => {
-      const stop: RouteStop = typeof entry === "string" ? { node: entry } : entry;
-      if (!stop || typeof stop.node !== "string") fail(`robot "${r.id}": invalid route entry`);
-      if (stop.waitSec !== undefined && (!Number.isFinite(stop.waitSec) || stop.waitSec < 0)) {
-        fail(`robot "${r.id}": waitSec at "${stop.node}" must be a non-negative number`);
-      }
-      return { node: lookupNode(stop.node, `robot "${r.id}" route`), waitSec: stop.waitSec ?? 0 };
-    });
-    for (let i = 1; i < stops.length; i++) {
-      if (stops[i].node === stops[i - 1].node) {
-        fail(`robot "${r.id}": consecutive route stops must differ ("${stops[i].node.id}")`);
+    const resolveStops = (entries: (string | RouteStop)[], context: string): ResolvedStop[] =>
+      entries.map((entry) => {
+        const stop: RouteStop = typeof entry === "string" ? { node: entry } : entry;
+        if (!stop || typeof stop.node !== "string") fail(`robot "${r.id}": invalid ${context} entry`);
+        if (stop.waitSec !== undefined && (!Number.isFinite(stop.waitSec) || stop.waitSec < 0)) {
+          fail(`robot "${r.id}": waitSec at "${stop.node}" must be a non-negative number`);
+        }
+        return { node: lookupNode(stop.node, `robot "${r.id}" ${context}`), waitSec: stop.waitSec ?? 0 };
+      });
+
+    const routeStops = resolveStops(r.route ?? [], "route");
+    let route: ResolvedStop[];
+    let loop: ResolvedStop[];
+    if (Array.isArray(r.loop)) {
+      route = routeStops;
+      loop = resolveStops(r.loop, "loop");
+    } else {
+      route = r.loop ? [] : routeStops;
+      loop = r.loop ? routeStops : [];
+    }
+
+    // Everything the robot travels before the loop starts repeating.
+    // Consecutive stops must differ, including across the route → loop boundary.
+    const path = [...route, ...loop];
+    for (let i = 1; i < path.length; i++) {
+      if (path[i].node === path[i - 1].node) {
+        fail(`robot "${r.id}": consecutive route stops must differ ("${path[i].node.id}")`);
       }
     }
 
-    // Register the edges this route travels so the renderer can draw them
+    // Register the edges this robot travels so the renderer can draw them
     // and the simulator can look up their distances.
-    const hops = stops.map((s) => s.node);
-    if (r.loop && hops[hops.length - 1] !== hops[0]) hops.push(hops[0]);
+    const hops = path.map((s) => s.node);
+    if (loop.length > 0 && hops[hops.length - 1] !== loop[0].node) hops.push(loop[0].node);
     for (let i = 1; i < hops.length; i++) {
       const key = edgeKey(hops[i - 1].id, hops[i].id);
       if (!edges.has(key)) {
@@ -124,8 +147,8 @@ export function resolveConfig(raw: unknown): ResolvedConfig {
       color: r.color ?? DEFAULT_COLORS[index % DEFAULT_COLORS.length],
       speedMps: r.speedMps,
       turnDurationSec: r.turnDurationSec,
-      stops,
-      loop: r.loop ?? false,
+      route,
+      loop,
       startDelaySec: r.startDelaySec ?? 0,
     });
   });
@@ -136,6 +159,31 @@ export function resolveConfig(raw: unknown): ResolvedConfig {
     edges: [...edges.values()],
     robots,
   };
+}
+
+/** A robot's raw stops in travel order, plus the index of the stop its loop starts at (null when it doesn't loop). */
+export function robotPath(robot: RobotConfig): { stops: (string | RouteStop)[]; loopFrom: number | null } {
+  const route = robot.route ?? [];
+  if (Array.isArray(robot.loop)) return { stops: [...route, ...robot.loop], loopFrom: route.length };
+  return { stops: [...route], loopFrom: robot.loop ? 0 : null };
+}
+
+/** Inverse of `robotPath`: store a stop list back into `route` / `loop`, using the shortest form. */
+export function setRobotPath(robot: RobotConfig, stops: (string | RouteStop)[], loopFrom: number | null): void {
+  if (loopFrom === null) {
+    robot.route = stops;
+    delete robot.loop;
+  } else if (loopFrom === 0) {
+    robot.route = stops;
+    robot.loop = true;
+  } else {
+    robot.route = stops.slice(0, loopFrom);
+    robot.loop = stops.slice(loopFrom);
+  }
+}
+
+export function stopNode(entry: string | RouteStop): string {
+  return typeof entry === "string" ? entry : entry.node;
 }
 
 /** Distance between two adjacent nodes, honoring explicit edge overrides. */
